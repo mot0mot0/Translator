@@ -14,7 +14,8 @@ SOURCES += \
 
 HEADERS += \
     mainwindow.h \
-    token.h
+    token.h \
+    treeNode.h
 
 FORMS += \
     mainwindow.ui

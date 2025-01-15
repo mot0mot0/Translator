@@ -18,14 +18,25 @@ enum TokenType {
 
 // Структура для представления лексемы
 struct Token {
-    TokenType type;    // Тип лексемы
-    QString value;     // Значение лексемы
-    int line;          // Номер строки, где найдена лексема
-    int column;        // Позиция лексемы в строке
+    TokenType type;
+    QString value;
+    int line;
+    int column;
 
-    // Конструктор для удобного создания токенов
+    Token() {
+        value = "";
+        clear();
+    }
+
     Token(TokenType type, const QString& value, int line, int column)
         : type(type), value(value), line(line), column(column) {}
+
+    void clear() {
+        this->type = Error;
+        this->value.clear();
+        this->line = 0;
+        this->column = 0;
+    }
 };
 
 #endif // TOKEN_H

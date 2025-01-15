@@ -74,17 +74,17 @@ void MainWindow::onLoadFile()
     QString content = file.readAll();
     file.close();
     textEdit->setPlainText(content);
-    syntaxTreeWidget->clear();
 
-    QList<Token> tokens = lexicalAnalysis(content);
+    QList<Token> tokens = lexicalAnalysis(content);\
 
     if (parse(tokens)) {
         QMessageBox::information(this, "Синтаксический анализ", "Анализ успешно завершен!");
         syntaxAnalysis(tokens);
-        syntaxTreeWidget->expandAll();
+
     } else {
-        QMessageBox::critical(this, "Синтаксический анализ", "Ошибка синтаксического анализа!");
+        QMessageBox::critical(this, "Синтаксический анализ", QString("Ошибка синтаксического анализа! Лексема %1, строка %2, столбец %3").arg(syntaxError.value, QString::number(syntaxError.line), QString::number(syntaxError.column)));
     }
+
 }
 
 QList<Token> MainWindow::lexicalAnalysis(const QString &text)
@@ -97,7 +97,7 @@ QList<Token> MainWindow::lexicalAnalysis(const QString &text)
     QRegularExpression identifierRegex(R"(^[a-zA-Z_][a-zA-Z0-9_]*)");
     QRegularExpression numberRegex(R"(^\d+)");
     QRegularExpression stringRegex(R"(^"[^"]*")");
-    QRegularExpression operatorRegex(R"(^[+\-*/])");
+    QRegularExpression operatorRegex(R"(^(\+\+|--))");
     QRegularExpression comparisonRegex(R"(^[<>=])");
     QRegularExpression assignmentRegex(R"(^:=)");
     QRegularExpression specialCharRegex(R"(^[\(\)\{\};])");
@@ -119,7 +119,6 @@ QList<Token> MainWindow::lexicalAnalysis(const QString &text)
                 continue;
             }
 
-            // Ключевые слова
             bool keywordMatched = false;
             for (const QString &keyword : keywords) {
                 if (subLine.startsWith(keyword) &&
@@ -135,7 +134,6 @@ QList<Token> MainWindow::lexicalAnalysis(const QString &text)
                 continue;
             }
 
-            // Строковые константы
             QRegularExpressionMatch match = stringRegex.match(line.mid(column));
             if (match.hasMatch()) {
                 addLexemToTable("Строковая константа", match.captured(), i + 1, column + 1);
@@ -144,7 +142,6 @@ QList<Token> MainWindow::lexicalAnalysis(const QString &text)
                 continue;
             }
 
-            // Знаки присваивания
             match = assignmentRegex.match(line.mid(column));
             if (match.hasMatch()) {
                 addLexemToTable("Знак присваивания", match.captured(), i + 1, column + 1);
@@ -153,7 +150,6 @@ QList<Token> MainWindow::lexicalAnalysis(const QString &text)
                 continue;
             }
 
-            // Арифметические операторы
             match = operatorRegex.match(line.mid(column));
             if (match.hasMatch()) {
                 addLexemToTable("Арифметический оператор", match.captured(), i + 1, column + 1);
@@ -162,7 +158,6 @@ QList<Token> MainWindow::lexicalAnalysis(const QString &text)
                 continue;
             }
 
-            // Операторы сравнения
             match = comparisonRegex.match(line.mid(column));
             if (match.hasMatch()) {
                 addLexemToTable("Оператор сравнения", match.captured(), i + 1, column + 1);
@@ -171,7 +166,6 @@ QList<Token> MainWindow::lexicalAnalysis(const QString &text)
                 continue;
             }
 
-            // Числа
             match = numberRegex.match(line.mid(column));
             if (match.hasMatch()) {
                 addLexemToTable("Число", match.captured(), i + 1, column + 1);
@@ -180,7 +174,6 @@ QList<Token> MainWindow::lexicalAnalysis(const QString &text)
                 continue;
             }
 
-            // Идентификаторы
             match = identifierRegex.match(line.mid(column));
             if (match.hasMatch()) {
                 QString tokenValue = match.captured();
@@ -197,7 +190,6 @@ QList<Token> MainWindow::lexicalAnalysis(const QString &text)
                 continue;
             }
 
-            // Скобки и символы
             match = specialCharRegex.match(line.mid(column));
             if (match.hasMatch()) {
                 addLexemToTable("Специальный символ", match.captured(), i + 1, column + 1);
@@ -206,7 +198,6 @@ QList<Token> MainWindow::lexicalAnalysis(const QString &text)
                 continue;
             }
 
-            // Неопознанный символ
             addLexemToTable("Error", QString("Неопознанный символ: %1").arg(line[column]), i + 1, column + 1);
             tokens.append({Error, QString("Неопознанный символ: %1").arg(line[column]), i + 1, column + 1});
             column++;
@@ -230,67 +221,62 @@ void MainWindow::addLexemToTable(const QString &type, const QString &value, int 
     lexicalTable->item(row, 3)->setTextAlignment(Qt::AlignCenter);
 }
 
-bool MainWindow::parse(const QList<Token> &tokens)
-{
-    QTreeWidgetItem *treeRoot = new QTreeWidgetItem(syntaxTreeWidget);
-    treeRoot->setText(0, "a");
+bool MainWindow::parse(const QList<Token> &tokens) {
+    syntaxTree.clear();
+    syntaxError = Token{Error, NULL, 0, 0};
 
+    TreeNode root = {"node", "S", QVector<TreeNode>()};
     int index = 0;
-    return parseS(tokens, index, treeRoot) && index == tokens.size();
-}
-
-bool MainWindow::parseS(const QList<Token> &tokens, int &index, QTreeWidgetItem *treePoint)
-{
-    QTreeWidgetItem *treeItemHead = new QTreeWidgetItem(treePoint);
-    treeItemHead->setText(0, "a");
-
-    if (parseF(tokens, index, treeItemHead)) {
-        if (index < tokens.size() && tokens[index].value == ";") {
-            QTreeWidgetItem *treeItem_1 = new QTreeWidgetItem(treePoint);
-            treeItem_1->setText(0, tokens[index].value);
-
-            index++;
-            return true;
-        }
+    if (parseS(tokens, index, root) && index == tokens.size()) {
+        syntaxTree = root;
+        return true;
     }
     return false;
 }
 
-bool MainWindow::parseF(const QList<Token> &tokens, int &index, QTreeWidgetItem *treePoint)
-{
-    if (index < tokens.size() && tokens[index].value == "for") {
-        QTreeWidgetItem *treeItem_1 = new QTreeWidgetItem(treePoint);
-        treeItem_1->setText(0, tokens[index].value);
+bool MainWindow::parseS(const QList<Token> &tokens, int &index, TreeNode &treeNode) {
+    TreeNode child = {"node", "F", QVector<TreeNode>()};\
 
+    if (parseF(tokens, index, child)) {
+        treeNode.children.append(child);
+        if (index < tokens.size() && tokens[index].value == ";") {
+            treeNode.children.append({"lexeme", tokens[index].value, QVector<TreeNode>()});
+            index++;
+            return true;
+        }
+    }
+    if (syntaxError.value == NULL) {
+        syntaxError = tokens[index];
+    }
+    return false;
+}
+
+bool MainWindow::parseF(const QList<Token> &tokens, int &index, TreeNode &treeNode) {
+    if (index < tokens.size() && tokens[index].value == "for") {
+        treeNode.children.append({"lexeme", tokens[index].value, QVector<TreeNode>()});
         index++;
         if (index < tokens.size() && tokens[index].value == "(") {
-            QTreeWidgetItem *treeItem_2 = new QTreeWidgetItem(treePoint);
-            treeItem_2->setText(0, tokens[index].value);
-
+            treeNode.children.append({"lexeme", tokens[index].value, QVector<TreeNode>()});
             index++;
 
-            QTreeWidgetItem *treeItemHead_1 = new QTreeWidgetItem(treePoint);
-            treeItemHead_1->setText(0, "a");
-
-            if (parseT(tokens, index, treeItemHead_1)) {
+            TreeNode tNode = {"node", "T", QVector<TreeNode>()};
+            if (parseT(tokens, index, tNode)) {
+                treeNode.children.append(tNode);
                 if (index < tokens.size() && tokens[index].value == ")") {
-                    QTreeWidgetItem *treeItem_3 = new QTreeWidgetItem(treePoint);
-                    treeItem_3->setText(0, tokens[index].value);
-
+                    treeNode.children.append({"lexeme", tokens[index].value, QVector<TreeNode>()});
                     index++;
                     if (index < tokens.size() && tokens[index].value == "do") {
-                        QTreeWidgetItem *treeItem_4 = new QTreeWidgetItem(treePoint);
-                        treeItem_4->setText(0, tokens[index].value);
-
+                        treeNode.children.append({"lexeme", tokens[index].value, QVector<TreeNode>()});
                         index++;
 
-                        if (index + 1 < tokens.size()){
-                            QTreeWidgetItem *treeItemHead_2 = new QTreeWidgetItem(treePoint);
-                            treeItemHead_2->setText(0, "a");
-
-                            return parseG(tokens, index, treeItemHead_2);
-                        }
-                        else {
+                        TreeNode fNode = {"node", "F", QVector<TreeNode>()};
+                        if (index + 1 < tokens.size())
+                        {
+                            if (parseF(tokens, index, fNode)) {
+                                treeNode.children.append(fNode);
+                                return true;
+                            }
+                        } else {
                             return true;
                         }
                     }
@@ -298,159 +284,115 @@ bool MainWindow::parseF(const QList<Token> &tokens, int &index, QTreeWidgetItem 
             }
         }
     }
-    return false;
-}
-
-bool MainWindow::parseG(const QList<Token> &tokens, int &index, QTreeWidgetItem *treePoint)
-{
-    return parseF(tokens, index, treePoint) || parseAssignment(tokens, index, treePoint);
-}
-
-bool MainWindow::parseAssignment(const QList<Token> &tokens, int &index, QTreeWidgetItem *treePoint)
-{
-    if (index < tokens.size() && tokens[index].type == Identifier) {
-        QTreeWidgetItem *treeItem_1 = new QTreeWidgetItem(treePoint);
-        treeItem_1->setText(0, tokens[index].value);
-
-        index++;
-        if (index < tokens.size() && tokens[index].value == ":=") {
-            QTreeWidgetItem *treeItem_2 = new QTreeWidgetItem(treePoint);
-            treeItem_2->setText(0, tokens[index].value);
-
-            index++;
-            if (index < tokens.size() &&
-                (tokens[index].type == Identifier || tokens[index].type == StringConstant)) {
-                QTreeWidgetItem *treeItem_3 = new QTreeWidgetItem(treePoint);
-                treeItem_3->setText(0, tokens[index].value);
-
-                index++;
-                return true;
-            }
+    if (parseAssignment(tokens, index, treeNode)) {
+        return  true;
+    } else {
+        if (syntaxError.value == NULL) {
+            syntaxError = tokens[index];
         }
+        return false;
     }
-    return false;
 }
 
-bool MainWindow::parseT(const QList<Token> &tokens, int &index, QTreeWidgetItem *treePoint)
-{
+bool MainWindow::parseT(const QList<Token> &tokens, int &index, TreeNode &treeNode) {
     if (tokens[index].value != ";") {
-        QTreeWidgetItem *treeItemHead_1 = new QTreeWidgetItem(treePoint);
-        treeItemHead_1->setText(0, "a");
+        TreeNode fNode = {"node", "F", QVector<TreeNode>()};
+        if (parseF(tokens, index, fNode)) {
+            treeNode.children.append(fNode);
+            if (tokens[index].value == ";") {
+                treeNode.children.append({"lexeme", tokens[index].value, QVector<TreeNode>()});
+                index++;
 
-        if (parseE(tokens, index, treeItemHead_1)) {
-                if (tokens[index].value == ";") {
-                    QTreeWidgetItem *treeItem_1 = new QTreeWidgetItem(treePoint);
-                    treeItem_1->setText(0, tokens[index].value);
+                TreeNode eNode = {"node", "E", QVector<TreeNode>()};
+                if (parseE(tokens, index, eNode)) {
+                    treeNode.children.append(eNode);
+                    if (tokens[index].value == ";") {
+                        treeNode.children.append({"lexeme", tokens[index].value, QVector<TreeNode>()});
+                        index++;
 
-                    index++;
-
-                    QTreeWidgetItem *treeItemHead_2 = new QTreeWidgetItem(treePoint);
-                    treeItemHead_2->setText(0, "a");
-
-                    bool parseHResult = parseH(tokens, index, treeItemHead_2);
-
-                    QTreeWidgetItem *treeItem_2 = new QTreeWidgetItem(treePoint);
-                    treeItem_2->setText(0, tokens[index].value);
-
-                    QTreeWidgetItem *treeItemHead_3 = new QTreeWidgetItem(treePoint);
-                    treeItemHead_3->setText(0, "a");
-
-                    return parseHResult && tokens[index].value == ";" && parseK(tokens, ++index, treeItemHead_3);
+                        if (tokens[index].value == ")") {
+                            return true;
+                        } else {
+                            TreeNode fNode2 = {"node", "F", QVector<TreeNode>()};
+                            if (parseF(tokens, index, fNode2)) {
+                                treeNode.children.append(fNode2);
+                                return true;
+                            }
+                        }
+                    }
                 }
             }
+        }
     } else {
-        QTreeWidgetItem *treeItem_2 = new QTreeWidgetItem(treePoint);
-        treeItem_2->setText(0, tokens[index].value);
-
+        treeNode.children.append({"lexeme", tokens[index].value, QVector<TreeNode>()});
         index++;
 
-        QTreeWidgetItem *treeItemHead_4 = new QTreeWidgetItem(treePoint);
-        treeItemHead_4->setText(0, "a");
-
-        if (parseH(tokens, index, treeItemHead_4)) {
+        TreeNode eNode = {"node", "E", QVector<TreeNode>()};
+        if (parseE(tokens, index, eNode)) {
+            treeNode.children.append(eNode);
             if (tokens[index].value == ";") {
-                QTreeWidgetItem *treeItem_3 = new QTreeWidgetItem(treePoint);
-                treeItem_3->setText(0, tokens[index].value);
-
+                treeNode.children.append({"lexeme", tokens[index].value, QVector<TreeNode>()});
                 index++;
 
-                QTreeWidgetItem *treeItemHead_5 = new QTreeWidgetItem(treePoint);
-                treeItemHead_5->setText(0, "a");
-
-                return parseK(tokens, index, treeItemHead_5);
+                TreeNode fNode = {"node", "F", QVector<TreeNode>()};
+                if (parseF(tokens, index, fNode)) {
+                    treeNode.children.append(fNode);
+                    return true;
+                }
             }
         }
+    }
+    if (syntaxError.value == NULL) {
+        syntaxError = tokens[index];
     }
     return false;
 }
 
-bool MainWindow::parseE(const QList<Token> &tokens, int &index, QTreeWidgetItem *treePoint)
-{
+bool MainWindow::parseE(const QList<Token> &tokens, int &index, TreeNode &treeNode) {
     if (index < tokens.size() && tokens[index].type == Identifier) {
-        QTreeWidgetItem *treeItem_1 = new QTreeWidgetItem(treePoint);
-        treeItem_1->setText(0, tokens[index].value);
-
+        treeNode.children.append({"lexeme", tokens[index].value, QVector<TreeNode>()});
         index++;
-        if (index < tokens.size() && tokens[index].value == ":=") {
-            QTreeWidgetItem *treeItem_2 = new QTreeWidgetItem(treePoint);
-            treeItem_2->setText(0, tokens[index].value);
-
+        if (index < tokens.size() && (tokens[index].value == "<" || tokens[index].value == ">" || tokens[index].value == "=")) {
+            treeNode.children.append({"lexeme", tokens[index].value, QVector<TreeNode>()});
             index++;
             if (index < tokens.size() && tokens[index].type == Number) {
-                QTreeWidgetItem *treeItem_3 = new QTreeWidgetItem(treePoint);
-                treeItem_3->setText(0, tokens[index].value);
-
+                treeNode.children.append({"lexeme", tokens[index].value, QVector<TreeNode>()});
                 index++;
                 return true;
             }
         }
     }
-    return false;
-}
-
-bool MainWindow::parseH(const QList<Token> &tokens, int &index, QTreeWidgetItem *treePoint)
-{
-    if (index < tokens.size() && tokens[index].type == Identifier) {
-        QTreeWidgetItem *treeItem_1 = new QTreeWidgetItem(treePoint);
-        treeItem_1->setText(0, tokens[index].value);
-
-        index++;
-        if (index < tokens.size() &&
-            (tokens[index].value == "<" || tokens[index].value == ">" || tokens[index].value == "=")) {
-            QTreeWidgetItem *treeItem_2 = new QTreeWidgetItem(treePoint);
-            treeItem_2->setText(0, tokens[index].value);
-
-            index++;
-            if (index < tokens.size() && tokens[index].type == Number) {
-                QTreeWidgetItem *treeItem_3 = new QTreeWidgetItem(treePoint);
-                treeItem_3->setText(0, tokens[index].value);
-
-                index++;
-                return true;
-            }
-        }
+    if (syntaxError.value == NULL) {
+        syntaxError = tokens[index];
     }
     return false;
 }
 
-bool MainWindow::parseK(const QList<Token> &tokens, int &index, QTreeWidgetItem *treePoint)
-{
-    if (index < tokens.size() &&
-        ((tokens[index].value == "+" && tokens[index+1].value == "+") || (tokens[index].value == "-" && tokens[index+1].value == "-"))) {
-        QTreeWidgetItem *treeItem_1 = new QTreeWidgetItem(treePoint);
-        treeItem_1->setText(0, QString(tokens[index].value + tokens[index + 1].value));
-
-        index = index + 2;
-        if (index < tokens.size() && tokens[index].type == Identifier) {
-            QTreeWidgetItem *treeItem_2 = new QTreeWidgetItem(treePoint);
-            treeItem_2->setText(0, tokens[index].value);
-
+bool MainWindow::parseAssignment(const QList<Token> &tokens, int &index, TreeNode &treeNode) {
+    if (index < tokens.size() && tokens[index].type == Identifier) {
+        treeNode.children.append({"lexeme", tokens[index].value, QVector<TreeNode>()});
+        index++;
+        if(index < tokens.size() && tokens[index].type == Operator) {
+            treeNode.children.append({"lexeme", tokens[index].value, QVector<TreeNode>()});
             index++;
             return true;
         }
+        if (index < tokens.size() && tokens[index].value == ":=") {
+            treeNode.children.append({"lexeme", tokens[index].value, QVector<TreeNode>()});
+            index++;
+            if (index < tokens.size() && (tokens[index].type == Identifier || tokens[index].type == StringConstant || tokens[index].type == Number)) {
+                treeNode.children.append({"lexeme", tokens[index].value, QVector<TreeNode>()});
+                index++;
+                return true;
+            }
+        }
+    }
+    if (syntaxError.value == NULL) {
+        syntaxError = tokens[index];
     }
     return false;
 }
+
 
 void MainWindow::syntaxAnalysis(const QList<Token> &tokens)
 {
@@ -509,4 +451,20 @@ void MainWindow::syntaxAnalysis(const QList<Token> &tokens)
             }
         }
     }
+
+    syntaxTreeWidget->clear();
+    if (!syntaxTree.type.isEmpty()) {
+        buildSyntaxTreeWidget(syntaxTree, syntaxTreeWidget->invisibleRootItem());
+        syntaxTreeWidget->expandAll();
+    }
+}
+
+void MainWindow::buildSyntaxTreeWidget(const TreeNode &node, QTreeWidgetItem *parent) {
+    QTreeWidgetItem *item = new QTreeWidgetItem(parent);
+    item->setText(0, QString(node.value));
+
+    for (const TreeNode &child : node.children) {
+        buildSyntaxTreeWidget(child, item);
+    }
+
 }

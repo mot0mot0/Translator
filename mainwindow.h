@@ -2,6 +2,7 @@
 #define MAINWINDOW_H
 
 #include "token.h"
+#include "treeNode.h"
 #include <iostream>
 
 #include <QMainWindow>
@@ -39,21 +40,21 @@ private:
     QTableWidget *precedenceMatrixTable;
     QTreeWidget *syntaxTreeWidget;
     QPushButton *loadFileButton;
+    TreeNode syntaxTree;
+    Token syntaxError;
 
     void addLexemToTable(const QString& type, const QString& value, int line, int column);
     QList<Token> lexicalAnalysis(const QString &text);
     void syntaxAnalysis(const QList<Token> &tokens);
 
-    // Функции для синтаксического анализа
     bool parse(const QList<Token> &tokens);
-    bool parseS(const QList<Token> &tokens, int &index, QTreeWidgetItem *treePoint);
-    bool parseF(const QList<Token> &tokens, int &index, QTreeWidgetItem *treePoint);
-    bool parseG(const QList<Token> &tokens, int &index, QTreeWidgetItem *treePoint);
-    bool parseAssignment(const QList<Token> &tokens, int &index, QTreeWidgetItem *treePoint);
-    bool parseT(const QList<Token> &tokens, int &index, QTreeWidgetItem *treePoint);
-    bool parseE(const QList<Token> &tokens, int &index, QTreeWidgetItem *treePoint);
-    bool parseH(const QList<Token> &tokens, int &index, QTreeWidgetItem *treePoint);
-    bool parseK(const QList<Token> &tokens, int &index, QTreeWidgetItem *treePoint);
+    bool parseS(const QList<Token> &tokens, int &index, TreeNode &treeNode);
+    bool parseF(const QList<Token> &tokens, int &index, TreeNode &treeNode);
+    bool parseAssignment(const QList<Token> &tokens, int &index, TreeNode &treeNode);
+    bool parseT(const QList<Token> &tokens, int &index, TreeNode &treeNode);
+    bool parseE(const QList<Token> &tokens, int &index, TreeNode &treeNode);
+
+    void buildSyntaxTreeWidget(const TreeNode &node, QTreeWidgetItem *parent);
 };
 
 #endif // MAINWINDOW_H
