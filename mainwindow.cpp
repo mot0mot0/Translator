@@ -297,9 +297,7 @@ bool MainWindow::parseF(const QList<Token> &tokens, int &index, TreeNode &treeNo
 
 bool MainWindow::parseG(const QList<Token> &tokens, int &index, TreeNode &treeNode) {
     if (index < tokens.size() && tokens[index].value == "for") {
-        TreeNode fNode = {"node", "F", QVector<TreeNode>()};
-        if (parseF(tokens, index, fNode)) {
-            treeNode.children.append(fNode);
+        if (parseF(tokens, index, treeNode)) {
             return true;
         }
         if (syntaxError.value == NULL) {
@@ -514,14 +512,14 @@ QVector<Triad> MainWindow::generateTriads(const TreeNode& node, int& counter, QM
     }
 
     if (node.value == "F" && !node.children.isEmpty()) {
-        if (node.children[1].value == ":=") {
+        if (node.children.size() > 2 && node.children[1].value == ":=") {
             QString leftOperand = node.children[0].value;
             QString rightOperand = node.children[2].value;
 
             triads.append(Triad(":=", leftOperand, rightOperand));
             triads.last().index = ++counter;
         }
-        else if (!node.children.isEmpty() && node.children[0].value == "for") {
+        else if (node.children.size() > 4 && node.children[0].value == "for") {
             TreeNode tNode = node.children[2];
 
             QVector<Triad> tTriads = generateTriads(tNode, counter, triadCache);
@@ -530,21 +528,21 @@ QVector<Triad> MainWindow::generateTriads(const TreeNode& node, int& counter, QM
             int conditionIndex = counter - tTriads.size() + 1;
 
             QVector<Triad> bodyTriads;
-
-            for (auto lecks : node.children) {
-                if(lecks.value == "F") {
-                    bodyTriads = generateTriads(lecks, counter, triadCache);
-                    triads.append(bodyTriads);
+            for (const TreeNode& child : node.children) {
+                if (child.value == "F") {
+                    QVector<Triad> nestedBodyTriads = generateTriads(child, counter, triadCache);
+                    bodyTriads.append(nestedBodyTriads);
                 }
             }
+
+            triads.append(bodyTriads);
 
             triads.append(Triad("for",
                                 QString("^%1").arg(conditionIndex),
                                 QString("^%1").arg(counter)));
             triads.last().index = ++counter;
-
         }
-        else if (node.children.size() > 2 && (node.children[1].value == "++" || node.children[1].value == "--")){
+        else if (node.children.size() > 2 && (node.children[1].value == "++" || node.children[1].value == "--")) {
             QString leftOperand = node.children[0].value;
             QString rightOperand = "1";
 
@@ -575,64 +573,34 @@ QVector<Triad> MainWindow::generateTriads(const TreeNode& node, int& counter, QM
 
     return triads;
 }
+
 QVector<Triad> MainWindow::foldTriads(const QVector<Triad>& inputTriads) {
     QVector<Triad> foldedTriads;
-    QMap<QString, int> constantTable;
+    QMap<QString, QString> lastAssignment;
 
     for (const Triad& triad : inputTriads) {
         Triad newTriad = triad;
-
-        if (constantTable.contains(newTriad.operand1)) {
-            newTriad.operand1 = QString::number(constantTable[newTriad.operand1]);
-        }
-        if (constantTable.contains(newTriad.operand2)) {
-            newTriad.operand2 = QString::number(constantTable[newTriad.operand2]);
-        }
-
-        bool isOperand1Const = false, isOperand2Const = false;
-        int value1 = newTriad.operand1.toInt(&isOperand1Const);
-        int value2 = newTriad.operand2.toInt(&isOperand2Const);
-
-        if (isOperand1Const && isOperand2Const) {
-            int result = 0;
-
-            if (newTriad.operation == "+") {
-                result = value1 + value2;
-            } else if (newTriad.operation == "-") {
-                result = value1 - value2;
-            } else if (newTriad.operation == "*") {
-                result = value1 * value2;
-            } else if (newTriad.operation == "/") {
-                if (value2 != 0) {
-                    result = value1 / value2;
-                } else {
-                    qWarning() << "Division by zero in triad:" << newTriad.toString();
-                    continue;
-                }
-            }
-
-            newTriad.operation = "C";
-            newTriad.operand1 = QString::number(result);
-            newTriad.operand2.clear();
-        }
 
         if (newTriad.operation == ":=") {
             QString variable = newTriad.operand1;
             QString value = newTriad.operand2;
 
-            if (value.toInt(&isOperand1Const) && isOperand1Const) {
-                constantTable[variable] = value.toInt();
-            } else {
-                constantTable.remove(variable);
+            if (lastAssignment.contains(value)) {
+                QString assignedValue = lastAssignment[value];
+
+                bool isConst = assignedValue.toInt(nullptr, 10);
+                if (isConst) {
+                    value = assignedValue;
+                }
             }
+
+            lastAssignment[variable] = value;
+
+            newTriad.operand2 = value;
         }
 
         foldedTriads.append(newTriad);
     }
-
-    foldedTriads.erase(std::remove_if(foldedTriads.begin(), foldedTriads.end(), [](const Triad& triad) {
-        return triad.operation == "C";
-    }), foldedTriads.end());
 
     for (int i = 0; i < foldedTriads.size(); ++i) {
         foldedTriads[i].index = i + 1;
@@ -644,31 +612,46 @@ QVector<Triad> MainWindow::foldTriads(const QVector<Triad>& inputTriads) {
 QVector<Triad> MainWindow::removeRedundantTriads(const QVector<Triad>& inputTriads) {
     QVector<Triad> optimizedTriads;
     QSet<QString> usedVariables;
+    QMap<QString, int> lastAssignmentIdx;
+    QMap<int, int> indexMapping;
 
-    for (const auto& triad : inputTriads) {
-        if (!triad.operand1.isEmpty() && triad.operation != ":=") {
-            usedVariables.insert(triad.operand1);
-        }
-        if (!triad.operand2.isEmpty()) {
-            usedVariables.insert(triad.operand2);
-        }
-    }
+    int currentIndex = 1;
 
-    for (int i = inputTriads.size() - 1; i >= 0; --i) {
-        const auto& triad = inputTriads[i];
+    for (int i = 0; i < inputTriads.size(); ++i) {
+        const Triad& triad = inputTriads[i];
 
         if (triad.operation == ":=") {
-            if (usedVariables.contains(triad.operand1)) {
-                optimizedTriads.prepend(triad);
-                usedVariables.insert(triad.operand2);
+            QString variable = triad.operand1;
+
+            if (lastAssignmentIdx.contains(variable) && !usedVariables.contains(variable)) {
+                optimizedTriads.removeAt(lastAssignmentIdx[variable]);
             }
+
+            lastAssignmentIdx[variable] = optimizedTriads.size();
         } else {
-            optimizedTriads.prepend(triad);
             if (!triad.operand1.isEmpty()) {
                 usedVariables.insert(triad.operand1);
             }
             if (!triad.operand2.isEmpty()) {
                 usedVariables.insert(triad.operand2);
+            }
+        }
+
+        optimizedTriads.append(triad);
+        indexMapping[i + 1] = currentIndex++;
+    }
+
+    for (Triad& triad : optimizedTriads) {
+        if (triad.operand1.startsWith("^")) {
+            int oldIndex = triad.operand1.midRef(1).toInt();
+            if (indexMapping.contains(oldIndex)) {
+                triad.operand1 = QString("^%1").arg(indexMapping[oldIndex]);
+            }
+        }
+        if (triad.operand2.startsWith("^")) {
+            int oldIndex = triad.operand2.midRef(1).toInt();
+            if (indexMapping.contains(oldIndex)) {
+                triad.operand2 = QString("^%1").arg(indexMapping[oldIndex]);
             }
         }
     }
@@ -679,6 +662,7 @@ QVector<Triad> MainWindow::removeRedundantTriads(const QVector<Triad>& inputTria
 
     return optimizedTriads;
 }
+
 
 void MainWindow::displayTriads(QListWidget *widget, const QVector<Triad>& triads) {
     widget->clear();
