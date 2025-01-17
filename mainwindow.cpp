@@ -6,6 +6,8 @@ MainWindow::MainWindow(QWidget *parent)
 {
     ui->setupUi(this);
 
+    this->setWindowTitle("Устинов Илья ИС-41");
+
     textEdit = new QPlainTextEdit(this);
     textEdit->setEnabled(false);
 
@@ -13,32 +15,39 @@ MainWindow::MainWindow(QWidget *parent)
     precedenceMatrixTable = new QTableWidget(this);
     syntaxTreeWidget = new QTreeWidget(this);
 
+    baseTriadsList = new QListWidget(this);
+    foldingTriadsList = new QListWidget(this);
+    resultTriadsList = new QListWidget(this);
+
     loadFileButton = new QPushButton("Выбрать файл", this);
 
-    // Вкладка 1: Исходный текст
     QWidget *tab1 = new QWidget;
     QVBoxLayout *textInputLayout = new QVBoxLayout(tab1);
     textInputLayout->addWidget(loadFileButton);
     textInputLayout->addWidget(textEdit);
     ui->tabWidget->addTab(tab1, "Исходный текст");
 
-    // Вкладка 2: Лексический анализатор
     QWidget *tab2 = new QWidget;
     QVBoxLayout *lexicalLayout = new QVBoxLayout(tab2);
     lexicalLayout->addWidget(lexicalTable);
     ui->tabWidget->addTab(tab2, "Лексический анализатор");
 
-    // Вкладка 3: Матрица предшествования
     QWidget *tab3 = new QWidget;
     QVBoxLayout *precedenceMatrixLayout = new QVBoxLayout(tab3);
     precedenceMatrixLayout->addWidget(precedenceMatrixTable);
     ui->tabWidget->addTab(tab3, "Матрица предшествования");
 
-    // Вкладка 4: Синтаксическое дерево
     QWidget *tab4 = new QWidget;
     QVBoxLayout *syntaxTreeLayout = new QVBoxLayout(tab4);
     syntaxTreeLayout->addWidget(syntaxTreeWidget);
     ui->tabWidget->addTab(tab4, "Синтаксическое дерево");
+
+    QWidget *tab5 = new QWidget;
+    QHBoxLayout *triadsLayout = new QHBoxLayout(tab5);
+    triadsLayout->addWidget(baseTriadsList);
+    triadsLayout->addWidget(foldingTriadsList);
+    triadsLayout->addWidget(resultTriadsList);
+    ui->tabWidget->addTab(tab5, "Триады");
 
     lexicalTable->setColumnCount(4);
     lexicalTable->setHorizontalHeaderLabels({"Тип", "Значение", "Строка", "Столбец"});
@@ -80,6 +89,7 @@ void MainWindow::onLoadFile()
     if (parse(tokens)) {
         QMessageBox::information(this, "Синтаксический анализ", "Анализ успешно завершен!");
         syntaxAnalysis(tokens);
+        generateCode();
 
     } else {
         QMessageBox::critical(this, "Синтаксический анализ", QString("Ошибка синтаксического анализа! Лексема %1, строка %2, столбец %3").arg(syntaxError.value, QString::number(syntaxError.line), QString::number(syntaxError.column)));
@@ -235,10 +245,7 @@ bool MainWindow::parse(const QList<Token> &tokens) {
 }
 
 bool MainWindow::parseS(const QList<Token> &tokens, int &index, TreeNode &treeNode) {
-    TreeNode child = {"node", "F", QVector<TreeNode>()};\
-
-    if (parseF(tokens, index, child)) {
-        treeNode.children.append(child);
+    if (parseF(tokens, index, treeNode)) {
         if (index < tokens.size() && tokens[index].value == ";") {
             treeNode.children.append({"lexeme", tokens[index].value, QVector<TreeNode>()});
             index++;
@@ -253,52 +260,85 @@ bool MainWindow::parseS(const QList<Token> &tokens, int &index, TreeNode &treeNo
 
 bool MainWindow::parseF(const QList<Token> &tokens, int &index, TreeNode &treeNode) {
     if (index < tokens.size() && tokens[index].value == "for") {
-        treeNode.children.append({"lexeme", tokens[index].value, QVector<TreeNode>()});
+        TreeNode child = {"node", "F", QVector<TreeNode>()};
+
+        child.children.append({"lexeme", tokens[index].value, QVector<TreeNode>()});
         index++;
         if (index < tokens.size() && tokens[index].value == "(") {
-            treeNode.children.append({"lexeme", tokens[index].value, QVector<TreeNode>()});
+            child.children.append({"lexeme", tokens[index].value, QVector<TreeNode>()});
             index++;
 
             TreeNode tNode = {"node", "T", QVector<TreeNode>()};
             if (parseT(tokens, index, tNode)) {
-                treeNode.children.append(tNode);
+                child.children.append(tNode);
                 if (index < tokens.size() && tokens[index].value == ")") {
-                    treeNode.children.append({"lexeme", tokens[index].value, QVector<TreeNode>()});
+                    child.children.append({"lexeme", tokens[index].value, QVector<TreeNode>()});
                     index++;
                     if (index < tokens.size() && tokens[index].value == "do") {
-                        treeNode.children.append({"lexeme", tokens[index].value, QVector<TreeNode>()});
+                        child.children.append({"lexeme", tokens[index].value, QVector<TreeNode>()});
                         index++;
 
-                        TreeNode fNode = {"node", "F", QVector<TreeNode>()};
-                        if (index + 1 < tokens.size())
-                        {
-                            if (parseF(tokens, index, fNode)) {
-                                treeNode.children.append(fNode);
-                                return true;
-                            }
-                        } else {
+                        if (parseG(tokens, index, child)) {
+                            treeNode.children.append(child);
                             return true;
                         }
                     }
                 }
             }
         }
+    } else if (parseG(tokens, index, treeNode)) {
+        return true;
     }
-    if (parseAssignment(tokens, index, treeNode)) {
-        return  true;
-    } else {
+    if (syntaxError.value == NULL) {
+        syntaxError = tokens[index];
+    }
+    return false;
+}
+
+bool MainWindow::parseG(const QList<Token> &tokens, int &index, TreeNode &treeNode) {
+    if (index < tokens.size() && tokens[index].value == "for") {
+        TreeNode fNode = {"node", "F", QVector<TreeNode>()};
+        if (parseF(tokens, index, fNode)) {
+            treeNode.children.append(fNode);
+            return true;
+        }
         if (syntaxError.value == NULL) {
             syntaxError = tokens[index];
         }
         return false;
+    } else if (index + 5 < tokens.size() && tokens[index + 1].type == Assignment && tokens[index + 5].type == Assignment) {
+        TreeNode fNode1 = {"node", "F", QVector<TreeNode>()};
+        if (parseAssignment(tokens, index, fNode1)) {
+            treeNode.children.append(fNode1);
+            if (index < tokens.size() && tokens[index].value == ";") {
+                treeNode.children.append({"lexeme", tokens[index].value, QVector<TreeNode>()});
+                index++;
+
+                TreeNode fNode2 = {"node", "F", QVector<TreeNode>()};
+                if (index + 5 < tokens.size() && tokens[index + 1].type == Assignment && tokens[index + 5].type == Assignment) {
+                    return parseG(tokens, index, treeNode);
+                } else {
+                    if (parseAssignment(tokens, index, fNode2)) {
+                        treeNode.children.append(fNode2);
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
+    TreeNode fNode = {"node", "F", QVector<TreeNode>()};
+    if (parseAssignment(tokens, index, fNode)) {
+        treeNode.children.append(fNode);
+        return true;
+    }
+    return false;
 }
 
 bool MainWindow::parseT(const QList<Token> &tokens, int &index, TreeNode &treeNode) {
     if (tokens[index].value != ";") {
-        TreeNode fNode = {"node", "F", QVector<TreeNode>()};
-        if (parseF(tokens, index, fNode)) {
-            treeNode.children.append(fNode);
+
+        if (parseF(tokens, index, treeNode)) {
             if (tokens[index].value == ";") {
                 treeNode.children.append({"lexeme", tokens[index].value, QVector<TreeNode>()});
                 index++;
@@ -313,31 +353,29 @@ bool MainWindow::parseT(const QList<Token> &tokens, int &index, TreeNode &treeNo
                         if (tokens[index].value == ")") {
                             return true;
                         } else {
-                            TreeNode fNode2 = {"node", "F", QVector<TreeNode>()};
-                            if (parseF(tokens, index, fNode2)) {
-                                treeNode.children.append(fNode2);
-                                return true;
-                            }
+                            return parseF(tokens, index, treeNode);
                         }
                     }
                 }
             }
         }
     } else {
-        treeNode.children.append({"lexeme", tokens[index].value, QVector<TreeNode>()});
-        index++;
+        if (tokens[index].value == ";") {
+            treeNode.children.append({"lexeme", tokens[index].value, QVector<TreeNode>()});
+            index++;
 
-        TreeNode eNode = {"node", "E", QVector<TreeNode>()};
-        if (parseE(tokens, index, eNode)) {
-            treeNode.children.append(eNode);
-            if (tokens[index].value == ";") {
-                treeNode.children.append({"lexeme", tokens[index].value, QVector<TreeNode>()});
-                index++;
+            TreeNode eNode = {"node", "E", QVector<TreeNode>()};
+            if (parseE(tokens, index, eNode)) {
+                treeNode.children.append(eNode);
+                if (tokens[index].value == ";") {
+                    treeNode.children.append({"lexeme", tokens[index].value, QVector<TreeNode>()});
+                    index++;
 
-                TreeNode fNode = {"node", "F", QVector<TreeNode>()};
-                if (parseF(tokens, index, fNode)) {
-                    treeNode.children.append(fNode);
-                    return true;
+                    if (tokens[index].value == ")") {
+                        return true;
+                    } else {
+                        return parseF(tokens, index, treeNode);
+                    }
                 }
             }
         }
@@ -393,7 +431,6 @@ bool MainWindow::parseAssignment(const QList<Token> &tokens, int &index, TreeNod
     return false;
 }
 
-
 void MainWindow::syntaxAnalysis(const QList<Token> &tokens)
 {
     QList<QString> lexemes;
@@ -405,6 +442,7 @@ void MainWindow::syntaxAnalysis(const QList<Token> &tokens)
         lexemes.append(value);
         lexemesTypes.append(type);
     }
+
 
     precedenceMatrixTable->setRowCount(lexemes.size());
     precedenceMatrixTable->setColumnCount(lexemes.size());
@@ -466,5 +504,201 @@ void MainWindow::buildSyntaxTreeWidget(const TreeNode &node, QTreeWidgetItem *pa
     for (const TreeNode &child : node.children) {
         buildSyntaxTreeWidget(child, item);
     }
+}
 
+QVector<Triad> MainWindow::generateTriads(const TreeNode& node, int& counter, QMap<QString, int>& triadCache) {
+    QVector<Triad> triads;
+
+    if (node.type == "lexeme") {
+        return triads;
+    }
+
+    if (node.value == "F" && !node.children.isEmpty()) {
+        if (node.children[1].value == ":=") {
+            QString leftOperand = node.children[0].value;
+            QString rightOperand = node.children[2].value;
+
+            triads.append(Triad(":=", leftOperand, rightOperand));
+            triads.last().index = ++counter;
+        }
+        else if (!node.children.isEmpty() && node.children[0].value == "for") {
+            TreeNode tNode = node.children[2];
+
+            QVector<Triad> tTriads = generateTriads(tNode, counter, triadCache);
+            triads.append(tTriads);
+
+            int conditionIndex = counter - tTriads.size() + 1;
+
+            QVector<Triad> bodyTriads;
+
+            for (auto lecks : node.children) {
+                if(lecks.value == "F") {
+                    bodyTriads = generateTriads(lecks, counter, triadCache);
+                    triads.append(bodyTriads);
+                }
+            }
+
+            triads.append(Triad("for",
+                                QString("^%1").arg(conditionIndex),
+                                QString("^%1").arg(counter)));
+            triads.last().index = ++counter;
+
+        }
+        else if (node.children.size() > 2 && (node.children[1].value == "++" || node.children[1].value == "--")){
+            QString leftOperand = node.children[0].value;
+            QString rightOperand = "1";
+
+            triads.append(Triad(node.children[1].value == "++" ? "+" : "-", leftOperand, rightOperand));
+            triads.last().index = ++counter;
+        }
+    }
+    else if (node.value == "T") {
+        for (const TreeNode& child : node.children) {
+            QVector<Triad> childTriads = generateTriads(child, counter, triadCache);
+            triads.append(childTriads);
+        }
+    }
+    else if (node.value == "E" && node.children.size() == 3) {
+        QString leftOperand = node.children[0].value;
+        QString operation = node.children[1].value;
+        QString rightOperand = node.children[2].value;
+
+        triads.append(Triad(operation, leftOperand, rightOperand));
+        triads.last().index = ++counter;
+    }
+
+    for (auto& triad : triads) {
+        if (triad.index == 0) {
+            triad.index = ++counter;
+        }
+    }
+
+    return triads;
+}
+QVector<Triad> MainWindow::foldTriads(const QVector<Triad>& inputTriads) {
+    QVector<Triad> foldedTriads;
+    QMap<QString, int> constantTable;
+
+    for (const Triad& triad : inputTriads) {
+        Triad newTriad = triad;
+
+        if (constantTable.contains(newTriad.operand1)) {
+            newTriad.operand1 = QString::number(constantTable[newTriad.operand1]);
+        }
+        if (constantTable.contains(newTriad.operand2)) {
+            newTriad.operand2 = QString::number(constantTable[newTriad.operand2]);
+        }
+
+        bool isOperand1Const = false, isOperand2Const = false;
+        int value1 = newTriad.operand1.toInt(&isOperand1Const);
+        int value2 = newTriad.operand2.toInt(&isOperand2Const);
+
+        if (isOperand1Const && isOperand2Const) {
+            int result = 0;
+
+            if (newTriad.operation == "+") {
+                result = value1 + value2;
+            } else if (newTriad.operation == "-") {
+                result = value1 - value2;
+            } else if (newTriad.operation == "*") {
+                result = value1 * value2;
+            } else if (newTriad.operation == "/") {
+                if (value2 != 0) {
+                    result = value1 / value2;
+                } else {
+                    qWarning() << "Division by zero in triad:" << newTriad.toString();
+                    continue;
+                }
+            }
+
+            newTriad.operation = "C";
+            newTriad.operand1 = QString::number(result);
+            newTriad.operand2.clear();
+        }
+
+        if (newTriad.operation == ":=") {
+            QString variable = newTriad.operand1;
+            QString value = newTriad.operand2;
+
+            if (value.toInt(&isOperand1Const) && isOperand1Const) {
+                constantTable[variable] = value.toInt();
+            } else {
+                constantTable.remove(variable);
+            }
+        }
+
+        foldedTriads.append(newTriad);
+    }
+
+    foldedTriads.erase(std::remove_if(foldedTriads.begin(), foldedTriads.end(), [](const Triad& triad) {
+        return triad.operation == "C";
+    }), foldedTriads.end());
+
+    for (int i = 0; i < foldedTriads.size(); ++i) {
+        foldedTriads[i].index = i + 1;
+    }
+
+    return foldedTriads;
+}
+
+QVector<Triad> MainWindow::removeRedundantTriads(const QVector<Triad>& inputTriads) {
+    QVector<Triad> optimizedTriads;
+    QSet<QString> usedVariables;
+
+    for (const auto& triad : inputTriads) {
+        if (!triad.operand1.isEmpty() && triad.operation != ":=") {
+            usedVariables.insert(triad.operand1);
+        }
+        if (!triad.operand2.isEmpty()) {
+            usedVariables.insert(triad.operand2);
+        }
+    }
+
+    for (int i = inputTriads.size() - 1; i >= 0; --i) {
+        const auto& triad = inputTriads[i];
+
+        if (triad.operation == ":=") {
+            if (usedVariables.contains(triad.operand1)) {
+                optimizedTriads.prepend(triad);
+                usedVariables.insert(triad.operand2);
+            }
+        } else {
+            optimizedTriads.prepend(triad);
+            if (!triad.operand1.isEmpty()) {
+                usedVariables.insert(triad.operand1);
+            }
+            if (!triad.operand2.isEmpty()) {
+                usedVariables.insert(triad.operand2);
+            }
+        }
+    }
+
+    for (int i = 0; i < optimizedTriads.size(); ++i) {
+        optimizedTriads[i].index = i + 1;
+    }
+
+    return optimizedTriads;
+}
+
+void MainWindow::displayTriads(QListWidget *widget, const QVector<Triad>& triads) {
+    widget->clear();
+    for (const auto& triad : triads) {
+        widget->addItem(QString::number(triad.index) + ". " + triad.toString());
+    }
+}
+
+void MainWindow::generateCode() {
+    int counter = 0;
+    QMap<QString, int> triadCache;
+    TreeNode rootNode = syntaxTree.children[0];
+
+    QVector<Triad> baseTriads = generateTriads(rootNode, counter, triadCache);
+    displayTriads(baseTriadsList, baseTriads);
+
+
+    QVector<Triad> collapsedTriads = foldTriads(baseTriads);
+    displayTriads(foldingTriadsList, collapsedTriads);
+
+    QVector<Triad> optimizedTriads = removeRedundantTriads(collapsedTriads);
+    displayTriads(resultTriadsList, optimizedTriads);
 }
