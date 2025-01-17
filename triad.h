@@ -9,10 +9,8 @@ struct Triad {
     QString operand1;
     QString operand2;
 
-    // Конструктор по умолчанию
     Triad() : index(0), operation(""), operand1(""), operand2("") {}
 
-    // Пользовательский конструктор
     Triad(const QString& op, const QString& op1, const QString& op2)
         : index(0), operation(op), operand1(op1), operand2(op2) {}
 

@@ -3,7 +3,6 @@
 
 #include <QString>
 
-// Перечисление типов лексем
 enum TokenType {
     Identifier,        // Идентификатор
     Keyword,           // Ключевое слово
@@ -16,7 +15,6 @@ enum TokenType {
     Error              // Ошибка
 };
 
-// Структура для представления лексемы
 struct Token {
     TokenType type;
     QString value;
